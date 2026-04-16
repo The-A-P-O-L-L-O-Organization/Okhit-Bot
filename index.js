@@ -38,109 +38,225 @@ async function handleHelpCommand(interaction) {
   await interaction.reply({
     content: `**Okhit - Archive Bot**\n\n` +
       `**Commands:**\n` +
-      `/archive - Archive messages from a channel, thread, or forum\n\n` +
+      `/archive - Archive messages from a channel, thread, forum, or all allowed channels\n\n` +
       `**Options:**\n` +
-      `- \`source_channel\` - The channel, thread, or forum to archive (required)\n` +
-      `- \`message_limit\` - Max messages to fetch (default: 500, max: 2000)\n` +
+      `- \`source_channel\` - Specific channel/thread/forum to archive (optional - if omitted, archives ALL allowed channels)\n` +
+      `- \`message_limit\` - Max messages per channel (default: 500, max: 2000)\n` +
       `- \`export_name\` - Filename for the export (required)\n\n` +
       `**Supported Channel Types:**\n` +
       `- Text Channels\n` +
       `- Public/Private Threads\n` +
-      `- Forum Channels (includes all threads and archived threads)`,
+      `- Forum Channels (includes all threads and archived threads)\n\n` +
+      `**Note:** If no channel is specified, the bot will archive from all channels in the CHANNEL_IDS list.`,
     ephemeral: true,
   });
 }
 
 async function handleArchiveCommand(interaction) {
-  const sourceChannel = interaction.options.getChannel('source_channel', true);
+  const sourceChannel = interaction.options.getChannel('source_channel');
   const messageLimit = interaction.options.getInteger('message_limit') ?? 500;
   const exportName = interaction.options.getString('export_name', true);
-
-  if (ALLOWED_CHANNEL_IDS.length > 0 && !ALLOWED_CHANNEL_IDS.includes(sourceChannel.id)) {
-    await interaction.reply({
-      content: 'Error: This channel is not authorized for archiving.',
-      ephemeral: true,
-    });
-    return;
-  }
 
   const safeFileName = exportName.replace(/[^a-zA-Z0-9_-]/g, '_');
   const filePath = path.join(process.cwd(), `${safeFileName}.txt`);
 
-  const progressMessage = await interaction.reply({
-    content: `Starting archive of <#${sourceChannel.id}>...`,
-    fetchReply: true,
-  });
+  let progressMessage;
 
-  try {
-    let messages = [];
-    let channelName = sourceChannel.name;
-
-    if (sourceChannel.type === ChannelType.GuildText) {
-      messages = await fetchMessagesFromTextChannel(sourceChannel, messageLimit, progressMessage);
-    } else if (
-      sourceChannel.type === ChannelType.PublicThread ||
-      sourceChannel.type === ChannelType.PrivateThread ||
-      sourceChannel.type === ChannelType.AnnouncementThread
-    ) {
-      channelName = sourceChannel.parent?.name || sourceChannel.name;
-      messages = await fetchMessagesFromThread(sourceChannel, messageLimit, progressMessage);
-    } else if (sourceChannel.type === ChannelType.GuildForum) {
-      const forumData = await fetchMessagesFromForum(sourceChannel, messageLimit, progressMessage);
-      messages = forumData.messages;
-      messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    } else {
-      await interaction.editReply({
-        content: 'Error: Selected channel type is not supported. Please use a Text Channel, Thread, or Forum.',
+  if (sourceChannel) {
+    if (ALLOWED_CHANNEL_IDS.length > 0 && !ALLOWED_CHANNEL_IDS.includes(sourceChannel.id)) {
+      await interaction.reply({
+        content: 'Error: This channel is not authorized for archiving.',
+        ephemeral: true,
       });
       return;
     }
 
-    if (messages.length === 0) {
-      await interaction.editReply({ content: 'No messages found to archive.' });
-      return;
-    }
+    progressMessage = await interaction.reply({
+      content: `Starting archive of <#${sourceChannel.id}>...`,
+      fetchReply: true,
+    });
 
-    const formattedContent = messages.map(msg => {
-      const threadName = msg.threadName || channelName;
-      let line = `[${formatDate(msg.createdAt)}] [${threadName}] [${msg.author.username}]: ${msg.content || ''}`;
-      if (msg.attachments.size > 0) {
-        const attachments = msg.attachments.map(att => att.url).join(', ');
-        line += ` [Attachment(s): ${attachments}]`;
+    try {
+      let messages = [];
+      let channelName = sourceChannel.name;
+
+      if (sourceChannel.type === ChannelType.GuildText) {
+        messages = await fetchMessagesFromTextChannel(sourceChannel, messageLimit, progressMessage);
+      } else if (
+        sourceChannel.type === ChannelType.PublicThread ||
+        sourceChannel.type === ChannelType.PrivateThread ||
+        sourceChannel.type === ChannelType.AnnouncementThread
+      ) {
+        channelName = sourceChannel.parent?.name || sourceChannel.name;
+        messages = await fetchMessagesFromThread(sourceChannel, messageLimit, progressMessage);
+      } else if (sourceChannel.type === ChannelType.GuildForum) {
+        const forumData = await fetchMessagesFromForum(sourceChannel, messageLimit, progressMessage);
+        messages = forumData.messages;
+        messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      } else {
+        await interaction.editReply({
+          content: 'Error: Selected channel type is not supported. Please use a Text Channel, Thread, or Forum.',
+        });
+        return;
       }
-      return line;
-    }).join('\n');
 
-    fs.writeFileSync(filePath, formattedContent, 'utf-8');
+      if (messages.length === 0) {
+        await interaction.editReply({ content: 'No messages found to archive.' });
+        return;
+      }
 
-    const fileSize = fs.statSync(filePath).size;
-    const maxSize = 8 * 1024 * 1024;
+      const formattedContent = messages.map(msg => {
+        const threadName = msg.threadName || channelName;
+        let line = `[${formatDate(msg.createdAt)}] [${threadName}] [${msg.author.username}]: ${msg.content || ''}`;
+        if (msg.attachments.size > 0) {
+          const attachments = msg.attachments.map(att => att.url).join(', ');
+          line += ` [Attachment(s): ${attachments}]`;
+        }
+        return line;
+      }).join('\n');
 
-    if (fileSize > maxSize) {
-      fs.unlinkSync(filePath);
+      fs.writeFileSync(filePath, formattedContent, 'utf-8');
+
+      const fileSize = fs.statSync(filePath).size;
+      const maxSize = 8 * 1024 * 1024;
+
+      if (fileSize > maxSize) {
+        fs.unlinkSync(filePath);
+        await interaction.editReply({
+          content: `Error: The archived content (${(fileSize / (1024 * 1024)).toFixed(2)} MB) exceeds Discord's 8 MB file limit.`,
+        });
+        return;
+      }
+
+      const fileAttachment = new AttachmentBuilder(filePath, { name: `${safeFileName}.txt` });
+
       await interaction.editReply({
-        content: `Error: The archived content (${(fileSize / (1024 * 1024)).toFixed(2)} MB) exceeds Discord's 8 MB file limit.`,
+        content: `Successfully archived ${messages.length} messages from <#${sourceChannel.id}>.`,
+        files: [fileAttachment],
+      });
+
+      console.log(`[${new Date().toISOString()}] Archived ${messages.length} messages from ${sourceChannel.id} (${sourceChannel.name}) for ${interaction.user.tag}`);
+
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] Archive error:`, error);
+      await interaction.editReply({
+        content: `Error during archive: ${error.message}`,
+      });
+    } finally {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  } else {
+    if (ALLOWED_CHANNEL_IDS.length === 0) {
+      await interaction.reply({
+        content: 'Error: No CHANNEL_IDS configured and no channel specified.',
+        ephemeral: true,
       });
       return;
     }
 
-    const fileAttachment = new AttachmentBuilder(filePath, { name: `${safeFileName}.txt` });
-
-    await interaction.editReply({
-      content: `Successfully archived ${messages.length} messages from <#${sourceChannel.id}>.`,
-      files: [fileAttachment],
+    progressMessage = await interaction.reply({
+      content: `Starting archive of all ${ALLOWED_CHANNEL_IDS.length} allowed channels...`,
+      fetchReply: true,
     });
 
-    console.log(`[${new Date().toISOString()}] Archived ${messages.length} messages from ${sourceChannel.id} (${sourceChannel.name}) for ${interaction.user.tag}`);
+    try {
+      const allMessages = [];
+      const channelIdsToFetch = [...ALLOWED_CHANNEL_IDS];
+      let totalMessages = 0;
+      let channelsProcessed = 0;
 
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Archive error:`, error);
-    await interaction.editReply({
-      content: `Error during archive: ${error.message}`,
-    });
-  } finally {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+      for (const channelId of channelIdsToFetch) {
+        channelsProcessed++;
+        const channel = await client.channels.fetch(channelId);
+
+        if (!channel) {
+          await updateProgress(progressMessage, channelsProcessed, channelIdsToFetch.length, `Channel ${channelId} not found, skipping...`);
+          continue;
+        }
+
+        await updateProgress(
+          progressMessage,
+          channelsProcessed,
+          channelIdsToFetch.length,
+          `Processing channel ${channelsProcessed}/${channelIdsToFetch.length}: #${channel.name}...`
+        );
+
+        let channelMessages = [];
+
+        if (channel.type === ChannelType.GuildText) {
+          channelMessages = await fetchMessagesFromTextChannel(channel, messageLimit, null);
+        } else if (
+          channel.type === ChannelType.PublicThread ||
+          channel.type === ChannelType.PrivateThread ||
+          channel.type === ChannelType.AnnouncementThread
+        ) {
+          channelMessages = await fetchMessagesFromThread(channel, messageLimit, null);
+        } else if (channel.type === ChannelType.GuildForum) {
+          const forumData = await fetchMessagesFromForum(channel, messageLimit, null);
+          channelMessages = forumData.messages;
+        }
+
+        allMessages.push(...channelMessages);
+        totalMessages += channelMessages.length;
+
+        await updateProgress(
+          progressMessage,
+          channelsProcessed,
+          channelIdsToFetch.length,
+          `Processed #${channel.name}: ${channelMessages.length} messages (Total: ${totalMessages})`
+        );
+      }
+
+      if (allMessages.length === 0) {
+        await interaction.editReply({ content: 'No messages found to archive.' });
+        return;
+      }
+
+      allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+      const formattedContent = allMessages.map(msg => {
+        const channelName = msg.channelName || 'Unknown';
+        let line = `[${formatDate(msg.createdAt)}] [${channelName}] [${msg.author.username}]: ${msg.content || ''}`;
+        if (msg.attachments.size > 0) {
+          const attachments = msg.attachments.map(att => att.url).join(', ');
+          line += ` [Attachment(s): ${attachments}]`;
+        }
+        return line;
+      }).join('\n');
+
+      fs.writeFileSync(filePath, formattedContent, 'utf-8');
+
+      const fileSize = fs.statSync(filePath).size;
+      const maxSize = 8 * 1024 * 1024;
+
+      if (fileSize > maxSize) {
+        fs.unlinkSync(filePath);
+        await interaction.editReply({
+          content: `Error: The archived content (${(fileSize / (1024 * 1024)).toFixed(2)} MB) exceeds Discord's 8 MB file limit.`,
+        });
+        return;
+      }
+
+      const fileAttachment = new AttachmentBuilder(filePath, { name: `${safeFileName}.txt` });
+
+      await interaction.editReply({
+        content: `Successfully archived ${allMessages.length} messages from ${channelsProcessed} channels.`,
+        files: [fileAttachment],
+      });
+
+      console.log(`[${new Date().toISOString()}] Archived ${allMessages.length} messages from ${channelsProcessed} channels for ${interaction.user.tag}`);
+
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] Archive error:`, error);
+      await interaction.editReply({
+        content: `Error during archive: ${error.message}`,
+      });
+    } finally {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
   }
 }
@@ -157,7 +273,10 @@ async function fetchMessagesFromTextChannel(channel, limit, progressMessage) {
 
     if (fetched.size === 0) break;
 
-    messages.push(...fetched.values());
+    fetched.forEach((msg) => {
+      msg.channelName = channel.name;
+      messages.push(msg);
+    });
     lastId = fetched.lastKey();
 
     if (messages.length % 500 === 0 || messages.length >= limit) {
@@ -228,6 +347,10 @@ async function fetchMessagesFromForum(forumChannel, limit, progressMessage) {
 
     const remainingLimit = limit - totalFetched;
     const threadMessages = await fetchMessagesFromThread(thread, remainingLimit, null);
+
+    threadMessages.forEach(msg => {
+      msg.channelName = forumChannel.name;
+    });
 
     allMessages.push(...threadMessages);
     totalFetched += threadMessages.length;

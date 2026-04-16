@@ -16,10 +16,10 @@ export const commands = [
     options: [
       {
         name: 'source_channel',
-        description: 'The text channel, thread, or forum to archive',
+        description: 'The text channel, thread, or forum to archive (omit to archive all allowed channels)',
         type: 7,
         channel_types: [0, 11, 15],
-        required: true,
+        required: false,
       },
       {
         name: 'message_limit',
