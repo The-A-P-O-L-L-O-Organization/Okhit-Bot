@@ -15,6 +15,12 @@ export const commands = [
     description: 'Archive messages from a channel, thread, or forum to a .txt file',
     options: [
       {
+        name: 'export_name',
+        description: 'Name for the exported file (without extension)',
+        type: 3,
+        required: true,
+      },
+      {
         name: 'source_channel',
         description: 'The text channel, thread, or forum to archive (omit to archive all allowed channels)',
         type: 7,
@@ -28,12 +34,6 @@ export const commands = [
         min_value: 1,
         max_value: 2000,
         required: false,
-      },
-      {
-        name: 'export_name',
-        description: 'Name for the exported file (without extension)',
-        type: 3,
-        required: true,
       },
     ],
   },

@@ -17,7 +17,7 @@ const ALLOWED_CHANNEL_IDS = process.env.CHANNEL_IDS
   ? process.env.CHANNEL_IDS.split(',').map(id => id.trim())
   : [];
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
@@ -73,7 +73,6 @@ async function handleArchiveCommand(interaction) {
 
     progressMessage = await interaction.reply({
       content: `Starting archive of <#${sourceChannel.id}>...`,
-      fetchReply: true,
     });
 
     try {
@@ -158,7 +157,6 @@ async function handleArchiveCommand(interaction) {
 
     progressMessage = await interaction.reply({
       content: `Starting archive of all ${ALLOWED_CHANNEL_IDS.length} allowed channels...`,
-      fetchReply: true,
     });
 
     try {
