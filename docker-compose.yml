@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  okhit:
+    image: ghcr.io/the-a-p-o-l-l-o-organization/okhit:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
