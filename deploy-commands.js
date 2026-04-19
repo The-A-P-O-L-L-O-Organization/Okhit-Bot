@@ -35,6 +35,22 @@ export const commands = [
         max_value: 2000,
         required: false,
       },
+      {
+        name: 'filter_user',
+        description: 'Only archive messages from this user (mention or ID)',
+        type: 6,
+        required: false,
+      },
+      {
+        name: 'include_replies',
+        description: 'Also include replies to the filtered user\'s messages',
+        type: 5,
+        choices: [
+          { name: 'No (default)', value: 'no' },
+          { name: 'Yes', value: 'yes' },
+        ],
+        required: false,
+      },
     ],
   },
 ];

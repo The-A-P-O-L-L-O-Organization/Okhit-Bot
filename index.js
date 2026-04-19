@@ -10,6 +10,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
   ],
 });
 
@@ -42,6 +43,8 @@ async function handleHelpCommand(interaction) {
       `**Options:**\n` +
       `- \`source_channel\` - Specific channel/thread/forum to archive (optional - if omitted, archives ALL allowed channels)\n` +
       `- \`message_limit\` - Max messages per channel (default: 500, max: 2000)\n` +
+      `- \`filter_user\` - Only archive messages from this user (optional)\n` +
+      `- \`include_replies\` - Include replies to the filtered user's messages (default: No)\n` +
       `- \`export_name\` - Filename for the export (required)\n\n` +
       `**Supported Channel Types:**\n` +
       `- Text Channels\n` +
@@ -56,6 +59,8 @@ async function handleArchiveCommand(interaction) {
   const sourceChannel = interaction.options.getChannel('source_channel');
   const messageLimit = interaction.options.getInteger('message_limit') ?? 500;
   const exportName = interaction.options.getString('export_name', true);
+  const filterUser = interaction.options.getUser('filter_user');
+  const includeReplies = interaction.options.getString('include_replies') === 'yes';
 
   const safeFileName = exportName.replace(/[^a-zA-Z0-9_-]/g, '_');
   const filePath = path.join(process.cwd(), `${safeFileName}.txt`);
@@ -80,16 +85,16 @@ async function handleArchiveCommand(interaction) {
       let channelName = sourceChannel.name;
 
       if (sourceChannel.type === ChannelType.GuildText) {
-        messages = await fetchMessagesFromTextChannel(sourceChannel, messageLimit, progressMessage);
+        messages = await fetchMessagesFromTextChannel(sourceChannel, messageLimit, progressMessage, filterUser, includeReplies);
       } else if (
         sourceChannel.type === ChannelType.PublicThread ||
         sourceChannel.type === ChannelType.PrivateThread ||
         sourceChannel.type === ChannelType.AnnouncementThread
       ) {
         channelName = sourceChannel.parent?.name || sourceChannel.name;
-        messages = await fetchMessagesFromThread(sourceChannel, messageLimit, progressMessage);
+        messages = await fetchMessagesFromThread(sourceChannel, messageLimit, progressMessage, filterUser, includeReplies);
       } else if (sourceChannel.type === ChannelType.GuildForum) {
-        const forumData = await fetchMessagesFromForum(sourceChannel, messageLimit, progressMessage);
+        const forumData = await fetchMessagesFromForum(sourceChannel, messageLimit, progressMessage, filterUser, includeReplies);
         messages = forumData.messages;
         messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
       } else {
@@ -184,15 +189,15 @@ async function handleArchiveCommand(interaction) {
         let channelMessages = [];
 
         if (channel.type === ChannelType.GuildText) {
-          channelMessages = await fetchMessagesFromTextChannel(channel, messageLimit, null);
+          channelMessages = await fetchMessagesFromTextChannel(channel, messageLimit, null, filterUser, includeReplies);
         } else if (
           channel.type === ChannelType.PublicThread ||
           channel.type === ChannelType.PrivateThread ||
           channel.type === ChannelType.AnnouncementThread
         ) {
-          channelMessages = await fetchMessagesFromThread(channel, messageLimit, null);
+          channelMessages = await fetchMessagesFromThread(channel, messageLimit, null, filterUser, includeReplies);
         } else if (channel.type === ChannelType.GuildForum) {
-          const forumData = await fetchMessagesFromForum(channel, messageLimit, null);
+          const forumData = await fetchMessagesFromForum(channel, messageLimit, null, filterUser, includeReplies);
           channelMessages = forumData.messages;
         }
 
@@ -259,9 +264,10 @@ async function handleArchiveCommand(interaction) {
   }
 }
 
-async function fetchMessagesFromTextChannel(channel, limit, progressMessage) {
+async function fetchMessagesFromTextChannel(channel, limit, progressMessage, filterUser, includeReplies) {
   const messages = [];
   let lastId = null;
+  const filteredUserId = filterUser?.id;
 
   while (messages.length < limit) {
     const fetched = await channel.messages.fetch({
@@ -271,10 +277,29 @@ async function fetchMessagesFromTextChannel(channel, limit, progressMessage) {
 
     if (fetched.size === 0) break;
 
-    fetched.forEach((msg) => {
+    for (const [_, msg] of fetched) {
       msg.channelName = channel.name;
-      messages.push(msg);
-    });
+
+      if (filteredUserId) {
+        const isFromFilterUser = msg.author.id === filteredUserId;
+        const isReplyToFilterUser = includeReplies && msg.reference?.messageId;
+
+        if (isFromFilterUser) {
+          messages.push(msg);
+        } else if (isReplyToFilterUser && includeReplies) {
+          if (!messages.some(m => m.id === msg.reference.messageId)) {
+            const referencedMsg = await fetchReplyMessage(channel, msg.reference.messageId);
+            if (referencedMsg && referencedMsg.author.id === filteredUserId) {
+              messages.push(msg);
+            }
+          } else {
+            messages.push(msg);
+          }
+        }
+      } else {
+        messages.push(msg);
+      }
+    }
     lastId = fetched.lastKey();
 
     if (messages.length % 500 === 0 || messages.length >= limit) {
@@ -285,9 +310,10 @@ async function fetchMessagesFromTextChannel(channel, limit, progressMessage) {
   return messages;
 }
 
-async function fetchMessagesFromThread(thread, limit, progressMessage) {
+async function fetchMessagesFromThread(thread, limit, progressMessage, filterUser, includeReplies) {
   const messages = [];
   let lastId = null;
+  const filteredUserId = filterUser?.id;
 
   while (messages.length < limit) {
     const fetched = await thread.messages.fetch({
@@ -297,10 +323,29 @@ async function fetchMessagesFromThread(thread, limit, progressMessage) {
 
     if (fetched.size === 0) break;
 
-    fetched.forEach((msg) => {
+    for (const [_, msg] of fetched) {
       msg.threadName = thread.name;
-      messages.push(msg);
-    });
+
+      if (filteredUserId) {
+        const isFromFilterUser = msg.author.id === filteredUserId;
+        const isReplyToFilterUser = includeReplies && msg.reference?.messageId;
+
+        if (isFromFilterUser) {
+          messages.push(msg);
+        } else if (isReplyToFilterUser && includeReplies) {
+          if (!messages.some(m => m.id === msg.reference.messageId)) {
+            const referencedMsg = await fetchReplyMessage(thread, msg.reference.messageId);
+            if (referencedMsg && referencedMsg.author.id === filteredUserId) {
+              messages.push(msg);
+            }
+          } else {
+            messages.push(msg);
+          }
+        }
+      } else {
+        messages.push(msg);
+      }
+    }
     lastId = fetched.lastKey();
 
     if (messages.length % 500 === 0 || messages.length >= limit) {
@@ -311,7 +356,7 @@ async function fetchMessagesFromThread(thread, limit, progressMessage) {
   return messages;
 }
 
-async function fetchMessagesFromForum(forumChannel, limit, progressMessage) {
+async function fetchMessagesFromForum(forumChannel, limit, progressMessage, filterUser, includeReplies) {
   const allMessages = [];
   let totalFetched = 0;
 
@@ -344,7 +389,7 @@ async function fetchMessagesFromForum(forumChannel, limit, progressMessage) {
     );
 
     const remainingLimit = limit - totalFetched;
-    const threadMessages = await fetchMessagesFromThread(thread, remainingLimit, null);
+    const threadMessages = await fetchMessagesFromThread(thread, remainingLimit, null, filterUser, includeReplies);
 
     threadMessages.forEach(msg => {
       msg.channelName = forumChannel.name;
@@ -355,6 +400,14 @@ async function fetchMessagesFromForum(forumChannel, limit, progressMessage) {
   }
 
   return { messages: allMessages, threadCount };
+}
+
+async function fetchReplyMessage(channel, messageId) {
+  try {
+    return await channel.messages.fetch(messageId);
+  } catch {
+    return null;
+  }
 }
 
 async function updateProgress(progressMessage, current, total, customText = null) {
