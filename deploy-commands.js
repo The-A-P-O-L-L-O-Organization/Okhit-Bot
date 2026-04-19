@@ -44,7 +44,7 @@ export const commands = [
       {
         name: 'include_replies',
         description: 'Also include replies to the filtered user\'s messages',
-        type: 5,
+        type: 3,
         choices: [
           { name: 'No (default)', value: 'no' },
           { name: 'Yes', value: 'yes' },
