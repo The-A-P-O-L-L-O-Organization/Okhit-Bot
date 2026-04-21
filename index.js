@@ -40,7 +40,8 @@ async function handleHelpCommand(interaction) {
       `**Commands:**\n` +
       `/archive - Archive messages from a channel, thread, forum, or all allowed channels\n\n` +
       `**Options:**\n` +
-      `- \`source_channel\` - Specific channel/thread/forum to archive (optional - if omitted, archives ALL allowed channels)\n` +
+      `- \`source_channel\` - Single channel/thread/forum to archive\n` +
+      `- \`source_channels\` - Multiple channels (comma/space separated IDs)\n` +
       `- \`message_limit\` - Max messages per channel (default: 500, max: 2000)\n` +
       `- \`filter_user\` - Only archive messages from this user (optional)\n` +
       `- \`include_replies\` - Include replies to the filtered user's messages (default: No)\n` +
@@ -56,6 +57,7 @@ async function handleHelpCommand(interaction) {
 
 async function handleArchiveCommand(interaction) {
   const sourceChannel = interaction.options.getChannel('source_channel');
+  const sourceChannelsStr = interaction.options.getString('source_channels');
   const messageLimit = interaction.options.getInteger('message_limit') ?? 500;
   const exportName = interaction.options.getString('export_name', true);
   const filterUser = interaction.options.getUser('filter_user');
@@ -66,7 +68,27 @@ async function handleArchiveCommand(interaction) {
 
   let progressMessage;
 
+  const sourceChannelIds = [];
   if (sourceChannel) {
+    sourceChannelIds.push(sourceChannel.id);
+  } else if (sourceChannelsStr) {
+    const parsed = sourceChannelsStr.split(/[,\s]+/).filter(id => id.trim());
+    sourceChannelIds.push(...parsed);
+  }
+
+  if (sourceChannelIds.length === 0) {
+    sourceChannelIds.push(...ALLOWED_CHANNEL_IDS);
+  }
+
+  if (sourceChannelIds.length === 0) {
+    await interaction.reply({
+      content: 'Error: No CHANNEL_IDS configured and no channel specified.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (sourceChannel && sourceChannelIds.length === 1) {
     if (ALLOWED_CHANNEL_IDS.length > 0 && !ALLOWED_CHANNEL_IDS.includes(sourceChannel.id)) {
       await interaction.reply({
         content: 'Error: This channel is not authorized for archiving.',
@@ -151,38 +173,50 @@ async function handleArchiveCommand(interaction) {
       }
     }
   } else {
-    if (ALLOWED_CHANNEL_IDS.length === 0) {
-      await interaction.reply({
-        content: 'Error: No CHANNEL_IDS configured and no channel specified.',
-        ephemeral: true,
-      });
-      return;
+    let authorizedIds = sourceChannelIds;
+    if (ALLOWED_CHANNEL_IDS.length > 0) {
+      authorizedIds = sourceChannelIds.filter(id => ALLOWED_CHANNEL_IDS.includes(id));
+      if (authorizedIds.length === 0) {
+        await interaction.reply({
+          content: 'Error: None of the specified channels are authorized for archiving.',
+          ephemeral: true,
+        });
+        return;
+      }
     }
 
+    const isMulti = sourceChannelIds.length > 1;
     progressMessage = await interaction.reply({
-      content: `Starting archive of all ${ALLOWED_CHANNEL_IDS.length} allowed channels...`,
+      content: isMulti
+        ? `Starting archive of ${sourceChannelIds.length} channels...`
+        : `Starting archive of all ${authorizedIds.length} allowed channels...`,
     });
 
     try {
       const allMessages = [];
-      const channelIdsToFetch = [...ALLOWED_CHANNEL_IDS];
       let totalMessages = 0;
       let channelsProcessed = 0;
+      const idsToFetch = [...new Set(sourceChannelIds)];
 
-      for (const channelId of channelIdsToFetch) {
+      for (const channelId of idsToFetch) {
         channelsProcessed++;
         const channel = await client.channels.fetch(channelId);
 
         if (!channel) {
-          await updateProgress(progressMessage, channelsProcessed, channelIdsToFetch.length, `Channel ${channelId} not found, skipping...`);
+          await updateProgress(progressMessage, channelsProcessed, idsToFetch.length, `Channel ${channelId} not found, skipping...`);
+          continue;
+        }
+
+        if (ALLOWED_CHANNEL_IDS.length > 0 && !ALLOWED_CHANNEL_IDS.includes(channelId)) {
+          await updateProgress(progressMessage, channelsProcessed, idsToFetch.length, `Channel ${channelId} not authorized, skipping...`);
           continue;
         }
 
         await updateProgress(
           progressMessage,
           channelsProcessed,
-          channelIdsToFetch.length,
-          `Processing channel ${channelsProcessed}/${channelIdsToFetch.length}: #${channel.name}...`
+          idsToFetch.length,
+          `Processing channel ${channelsProcessed}/${idsToFetch.length}: #${channel.name}...`
         );
 
         let channelMessages = [];
@@ -206,7 +240,7 @@ async function handleArchiveCommand(interaction) {
         await updateProgress(
           progressMessage,
           channelsProcessed,
-          channelIdsToFetch.length,
+          idsToFetch.length,
           `Processed #${channel.name}: ${channelMessages.length} messages (Total: ${totalMessages})`
         );
       }

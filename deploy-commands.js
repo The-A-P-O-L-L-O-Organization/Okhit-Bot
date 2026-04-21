@@ -22,9 +22,15 @@ export const commands = [
       },
       {
         name: 'source_channel',
-        description: 'The text channel, thread, or forum to archive (omit to archive all allowed channels)',
+        description: 'Single channel/thread/forum to archive',
         type: 7,
         channel_types: [0, 11, 15],
+        required: false,
+      },
+      {
+        name: 'source_channels',
+        description: 'Multiple channels (comma/space separated IDs)',
+        type: 3,
         required: false,
       },
       {
