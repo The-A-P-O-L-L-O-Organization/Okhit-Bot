@@ -37,6 +37,10 @@ Display help information about available commands.
 [YYYY-MM-DD HH:mm] [ChannelName] [AuthorName]: Message content [Attachment(s): url(s)]
 ```
 
+## Documentation
+
+For detailed setup guides, command references, and usage examples, visit the **[Apollo Org documentation](https://docs.apolloorg.space/projects/okhit/intro)**.
+
 ## Features
 
 - Respects channel restrictions via `CHANNEL_IDS` in .env
