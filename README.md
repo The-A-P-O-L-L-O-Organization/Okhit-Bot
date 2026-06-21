@@ -39,7 +39,7 @@ Display help information about available commands.
 
 ## Documentation
 
-For detailed setup guides, command references, and usage examples, visit the **[Apollo Org documentation](https://the-a-p-o-l-l-o-organization.github.io/Apollo-Org-Docs/projects/okhit/intro)**.
+For detailed setup guides, command references, and usage examples, visit the **[Apollo Org documentation](https://the-a-p-o-l-l-o-organization.github.io/Apollo-Org-Docs/docs/projects/okhit/intro)**.
 
 ## Features
 
